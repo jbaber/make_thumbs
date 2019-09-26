@@ -5,6 +5,9 @@ import re
 import itertools
 import collections
 import os
+from PIL import Image
+import magic
+import json
 
 
 __doc__ = """
@@ -22,6 +25,8 @@ Options:
                                   "-x one -x two" etc.
   -X, --excludes-file=<filename>  File with one filename/dirname
                                   per line to be excluded
+  -j, --json-log=<filename>       File to output a json of original:thumbnail
+                                  absolute path pairs
   -V, --version                   Show version
   -v, --verbosity                 Number of v's is level of verbosity
                                   (No -v results in silence, -vvvv is
@@ -46,6 +51,8 @@ def main():
 
   verbosity = args["--verbosity"]
   v = verbosity
+
+  json_filename = args["--json-log"]
 
   image_root_dir_name = args["--root-dir"]
   if not os.path.isdir(image_root_dir_name):
@@ -85,6 +92,24 @@ def main():
           excluded_filenames.append(os.path.abspath(line))
       excluded_filenames.append(os.path.abspath(excludes_filename))
 
+
+  def append_to_json(pair, json_filename):
+    """TODO: Partial writes so this won't disappear on Ctrl-C"""
+    if os.path.isfile(json_filename):
+      with open(json_filename, 'r') as f:
+        current_json = json.load(f)
+      current_json["pairs"].append(pair)
+      with open(json_filename, 'w') as f:
+        json.dump(current_json, f)
+    else:
+      new_json = {"pairs": [pair]}
+      with open(json_filename, 'w') as f:
+        json.dump(new_json, f)
+
+
+
+  # Actually do stuff
+
   for (curdir, subdirs, filenames) in os.walk(image_root_dir_name,
       topdown=True):
     subdirs[:] = [
@@ -94,16 +119,45 @@ def main():
     ]
     for filename in filenames:
       if os.path.abspath(filename) not in excluded_filenames:
-        cur_path = os.path.join(curdir, filename)
+        cur_path = os.path.normpath(os.path.join(curdir, filename))
+        if magic.from_file(cur_path, mime=True).split("/")[0] != "image":
+          vprint(2, v, "{} not an image -- skipping.".format(cur_path))
+          continue
+
         if dryrun:
           vprint(2, v, "Would deal with {} (dryrun)".format(cur_path))
         else:
-          deal_with(cur_path, thumb_root_dir_name, v)
+          pair = deal_with(cur_path, thumb_root_dir_name, verbosity=v, size_tuple=(300, 300))
+          if pair != None and json_filename != None:
+            append_to_json(pair, json_filename)
 
 
-def deal_with(filename, thumb_root_dir_name, verbosity=0):
+
+def deal_with(filename, thumb_root_dir_name, verbosity=0, size_tuple=None):
+  """
+  @returns (abs_path_of_filename, abs_path_of_thumbnail) on success
+  """
+  if size_tuple == None:
+    size_tuple = (120, 120)
+  thumb_dir = os.path.normpath(os.path.join(thumb_root_dir_name, os.path.dirname(filename)))
+  abs_filename = os.path.abspath(filename)
+  thumb_abs_filename = os.path.abspath(os.path.join(thumb_dir, "t-" + os.path.basename(abs_filename)))
   vprint(2, verbosity,
-      f"Making thumb for {filename} in {thumb_root_dir_name}")
+      f"Making thumb for\n  {abs_filename}\nat\n  {thumb_abs_filename}")
+  try:
+    os.makedirs(thumb_dir)
+  except FileExistsError as e:
+    pass
+
+  im = Image.open(abs_filename)
+  try:
+    im.thumbnail(size_tuple)
+    im.save(thumb_abs_filename)
+    return (abs_filename, thumb_abs_filename)
+  except OSError as e:
+    vprint(1, verbosity, f"Error thumbnailing {abs_filename}: {str(e)}")
+    return None
+
 
 if __name__ == "__main__":
   main()
