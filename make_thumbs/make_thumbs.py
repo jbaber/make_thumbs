@@ -8,6 +8,7 @@ import os
 from PIL import Image
 import magic
 import json
+import subprocess
 
 
 __doc__ = """
@@ -20,6 +21,7 @@ Options:
   -t, --thumb-root-dir=<DIR>      Directory to populate with a tree full
                                   of thumbnails.  [DEFAULT: {2}]
   -d, --dry-run                   Don't actually write any files
+  -f, --force                     Overwrite existing thumbnails.
   -x, --exclude=<filename>        Directory/filename to exclude (you
                                   can list multiple by passing
                                   "-x one -x two" etc.
@@ -49,6 +51,8 @@ def main():
 
   dryrun = args["--dry-run"]
 
+  force = args["--force"]
+
   verbosity = args["--verbosity"]
   v = verbosity
 
@@ -70,27 +74,19 @@ def main():
       except FileExistsError:
         pass
 
-  excluded_dirnames = [
-    os.path.abspath(d)
-    for d in args["--exclude"]
-    if os.path.isdir(d)
-  ]
-  excluded_filenames = [
-    os.path.abspath(f)
-    for f in args["--exclude"]
-    if os.path.isfile(f)
-  ]
-
+  excluded_dirnames = args["--exclude"]
+  excluded_filenames = args["--exclude"]
   excludes_filename = args["--excludes-file"]
+
   if excludes_filename is not None:
     with open(excludes_filename) as f:
       for line in f:
         line = line.rstrip()
         if os.path.isdir(line):
-          excluded_dirnames.append(os.path.abspath(line))
+          excluded_dirnames.append(line)
         if os.path.isfile(line):
-          excluded_filenames.append(os.path.abspath(line))
-      excluded_filenames.append(os.path.abspath(excludes_filename))
+          excluded_filenames.append(line)
+      excluded_filenames.append(excludes_filename)
 
 
   def append_to_json(pair, json_filename):
@@ -115,48 +111,98 @@ def main():
     subdirs[:] = [
       d
       for d in subdirs
-      if os.path.abspath(d) not in excluded_dirnames
+      if d not in excluded_dirnames
     ]
     for filename in filenames:
-      if os.path.abspath(filename) not in excluded_filenames:
+      if filename not in excluded_filenames:
         cur_path = os.path.normpath(os.path.join(curdir, filename))
-        if magic.from_file(cur_path, mime=True).split("/")[0] != "image":
-          vprint(2, v, "{} not an image -- skipping.".format(cur_path))
+        if not can_be_thumbnailed(cur_path):
+          vprint(2, v, "{} not an image or video -- skipping.".format(cur_path))
           continue
 
         if dryrun:
           vprint(2, v, "Would deal with {} (dryrun)".format(cur_path))
         else:
-          pair = deal_with(cur_path, thumb_root_dir_name, verbosity=v, size_tuple=(300, 300))
+          pair = deal_with(cur_path, thumb_root_dir_name, verbosity=v, size_tuple=(300, 300), force=force)
           if pair != None and json_filename != None:
             append_to_json(pair, json_filename)
 
 
+def can_be_thumbnailed(path):
+  return is_an_image(path) or is_a_video(path)
 
-def deal_with(filename, thumb_root_dir_name, verbosity=0, size_tuple=None):
+
+def is_an_image(path):
+  return (magic.from_file(path, mime=True).split("/")[0] == "image")
+
+
+def is_a_video(path):
+  return (magic.from_file(path, mime=True).split("/")[0] == "video")
+
+
+def thumb_name_from_filename(filename):
+  if is_an_image(filename):
+    return "t-" + os.path.basename(filename)
+  elif is_a_video(filename):
+    return "tv-" + os.path.basename(filename) + ".jpg"
+
+
+def deal_with(filename, thumb_root_dir_name, verbosity=0, size_tuple=None, force=False):
   """
-  @returns (abs_path_of_filename, abs_path_of_thumbnail) on success
+  @returns (path_of_filename, path_of_thumbnail) on success
   """
   if size_tuple == None:
     size_tuple = (120, 120)
   thumb_dir = os.path.normpath(os.path.join(thumb_root_dir_name, os.path.dirname(filename)))
-  abs_filename = os.path.abspath(filename)
-  thumb_abs_filename = os.path.abspath(os.path.join(thumb_dir, "t-" + os.path.basename(abs_filename)))
+  thumb_filename = os.path.join(thumb_dir, thumb_name_from_filename(filename))
+
+  if os.path.exists(thumb_filename) and not force:
+    vprint(1, verbosity, f"{thumb_filename} already exists.  If you want it clobbered, pass -f flag.")
+    return None
+
   vprint(2, verbosity,
-      f"Making thumb for\n  {abs_filename}\nat\n  {thumb_abs_filename}")
+      f"Making thumb for\n  {filename}\nat\n  {thumb_filename}")
   try:
     os.makedirs(thumb_dir)
   except FileExistsError as e:
     pass
 
-  im = Image.open(abs_filename)
   try:
-    im.thumbnail(size_tuple)
-    im.save(thumb_abs_filename)
-    return (abs_filename, thumb_abs_filename)
+    create_thumbnail(filename, thumb_filename, size_tuple, verbosity)
+    return (filename, thumb_filename)
   except OSError as e:
-    vprint(1, verbosity, f"Error thumbnailing {abs_filename}: {str(e)}")
+    vprint(1, verbosity, f"Error thumbnailing {filename}: {str(e)}")
     return None
+  except ValueError as e:
+    vprint(1, verbosity, f"I can tell {filename} is an image file, but the image library I use cannot handle it.  (Got error {str(e)})")
+    return None
+  except IOError as e:
+    vprint(1, verbosity, f"I can tell {filename} is an image file, but the image library I use cannot handle it.  (Got error {str(e)})")
+    return None
+
+
+def create_thumbnail_from_image(filename, thumb_filename, size_tuple):
+  im = Image.open(filename)
+  im.thumbnail(size_tuple)
+  im.save(thumb_filename)
+
+
+def create_thumbnail_from_video(filename, thumb_filename, size_tuple, verbosity=1):
+  big_thumb_filename = thumb_filename + "meta.png"
+  cmdline = ["ffmpeg", "-i", filename, "-ss", "00:00:01.000", "-vframes", "1", big_thumb_filename]
+  vprint(1, verbosity, "{0}".format(" ".join(cmdline)))
+  subprocess.run(cmdline, check=True)
+  create_thumbnail_from_image(big_thumb_filename, thumb_filename,
+      size_tuple)
+  vprint(1, verbosity, f"Deleting {big_thumb_filename}")
+  os.remove(big_thumb_filename)
+
+
+def create_thumbnail(filename, thumb_filename, size_tuple, verbosity=1):
+  if is_an_image(filename):
+    create_thumbnail_from_image(filename, thumb_filename, size_tuple)
+  elif is_a_video(filename):
+    create_thumbnail_from_video(filename, thumb_filename, size_tuple, verbosity)
 
 
 if __name__ == "__main__":

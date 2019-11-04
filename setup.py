@@ -9,7 +9,7 @@ setup(
   license = "GPLv3",
   url = "https://github.com/jbaber/make_thumbs",
   packages = ['make_thumbs'],
-  install_requires = ['docopt', 'pillow', 'python-magic'],
+  install_requires = ['docopt', 'pillow', 'python-magic',],
   tests_require=['pytest'],
   entry_points = {
     'console_scripts': ['make-thumbs=make_thumbs.make_thumbs:main'],
