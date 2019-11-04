@@ -140,11 +140,29 @@ def is_a_video(path):
   return (magic.from_file(path, mime=True).split("/")[0] == "video")
 
 
+def thumb_names_from_filename(filename):
+  return {
+    "image": "t-" + os.path.basename(filename),
+    "video": "tv-" + os.path.basename(filename) + ".jpg",
+  }
+
+
 def thumb_name_from_filename(filename):
   if is_an_image(filename):
-    return "t-" + os.path.basename(filename)
-  elif is_a_video(filename):
-    return "tv-" + os.path.basename(filename) + ".jpg"
+    return thumb_names_from_filename(filename)["image"]
+  if is_a_video(filename):
+    return thumb_names_from_filename(filename)["video"]
+
+
+def existing_thumbs(filename, thumb_dir):
+  names = thumb_names_from_filename(filename)
+  to_return = []
+  for filetype in names:
+    possible_name = names[filetype]
+    possible_path = os.path.join(thumb_dir, possible_name)
+    if os.path.exists(possible_path):
+      to_return.append(possible_path)
+  return to_return
 
 
 def deal_with(filename, thumb_root_dir_name, verbosity=0, size_tuple=None, force=False):
@@ -153,12 +171,16 @@ def deal_with(filename, thumb_root_dir_name, verbosity=0, size_tuple=None, force
   """
   if size_tuple == None:
     size_tuple = (120, 120)
-  thumb_dir = os.path.normpath(os.path.join(thumb_root_dir_name, os.path.dirname(filename)))
-  thumb_filename = os.path.join(thumb_dir, thumb_name_from_filename(filename))
 
-  if os.path.exists(thumb_filename) and not force:
-    vprint(1, verbosity, f"{thumb_filename} already exists.  If you want it clobbered, pass -f flag.")
+  thumb_dir = os.path.normpath(os.path.join(thumb_root_dir_name, os.path.dirname(filename)))
+
+  existing = existing_thumbs(filename, thumb_dir)
+  if (existing != []) and not force:
+    for name in existing:
+      vprint(1, verbosity, f"{name} already exists.  If you want it clobbered, pass -f flag.")
     return None
+
+  thumb_filename = os.path.join(thumb_dir, thumb_name_from_filename(filename))
 
   vprint(2, verbosity,
       f"Making thumb for\n  {filename}\nat\n  {thumb_filename}")
