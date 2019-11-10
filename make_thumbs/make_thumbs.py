@@ -121,14 +121,21 @@ def is_a_video(path):
 def thumb_names_from_filename(filename):
   return {
     "image": "t-" + os.path.basename(filename),
+    "image600": "t600-" + os.path.basename(filename),
     "video": "tv-" + os.path.basename(filename) + ".jpg",
   }
 
 
-def thumb_name_from_filename(filename):
+def thumb_name_from_filename(filename, midsize=False):
   if is_an_image(filename):
+    if midsize:
+      return thumb_names_from_filename(filename)["image600"]
     return thumb_names_from_filename(filename)["image"]
   if is_a_video(filename):
+
+    # No such thing for videos right now
+    if midsize:
+      return None
     return thumb_names_from_filename(filename)["video"]
 
 
@@ -156,29 +163,38 @@ def deal_with(filename, thumb_root_dir_name, verbosity=0, size_tuple=None, force
   if (existing != []) and not force:
     for name in existing:
       vprint(1, verbosity, f"{name} already exists.  If you want it clobbered, pass -f flag.")
-    return None
+    return
 
   thumb_filename = os.path.join(thumb_dir, thumb_name_from_filename(filename))
+  possible_midsize_basename = thumb_name_from_filename(filename, midsize=True)
+  if possible_midsize_basename != None:
+    mid_thumb_filename = os.path.join(thumb_dir, possible_midsize_basename)
+  else:
+    mid_thumb_filename = None
 
-  vprint(2, verbosity,
-      f"Making thumb for\n  {filename}\nat\n  {thumb_filename}")
   try:
     os.makedirs(thumb_dir)
   except FileExistsError as e:
     pass
 
   try:
+    vprint(2, verbosity,
+        f"Making thumb for\n  {filename}\nat\n  {thumb_filename}")
     create_thumbnail(filename, thumb_filename, size_tuple, verbosity)
-    return (filename, thumb_filename)
+    if mid_thumb_filename:
+      vprint(2, verbosity,
+          f"Making midsize thumb for\n  {filename}\nat\n  {mid_thumb_filename}")
+      create_thumbnail(filename, mid_thumb_filename, (600, 600), verbosity)
+    return
   except OSError as e:
     vprint(1, verbosity, f"Error thumbnailing {filename}: {str(e)}")
-    return None
+    return
   except ValueError as e:
     vprint(1, verbosity, f"I can tell {filename} is an image file, but the image library I use cannot handle it.  (Got error {str(e)})")
-    return None
+    return
   except IOError as e:
     vprint(1, verbosity, f"I can tell {filename} is an image file, but the image library I use cannot handle it.  (Got error {str(e)})")
-    return None
+    return
 
 
 def create_thumbnail_from_image(filename, thumb_filename, size_tuple):
