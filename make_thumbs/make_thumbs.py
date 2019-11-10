@@ -7,7 +7,6 @@ import collections
 import os
 from PIL import Image
 import magic
-import json
 import subprocess
 
 
@@ -27,8 +26,6 @@ Options:
                                   "-x one -x two" etc.
   -X, --excludes-file=<filename>  File with one filename/dirname
                                   per line to be excluded
-  -j, --json-log=<filename>       File to output a json of original:thumbnail
-                                  absolute path pairs
   -V, --version                   Show version
   -v, --verbosity                 Number of v's is level of verbosity
                                   (No -v results in silence, -vvvv is
@@ -55,8 +52,6 @@ def main():
 
   verbosity = args["--verbosity"]
   v = verbosity
-
-  json_filename = args["--json-log"]
 
   image_root_dir_name = args["--root-dir"]
   if not os.path.isdir(image_root_dir_name):
@@ -89,21 +84,6 @@ def main():
       excluded_filenames.append(excludes_filename)
 
 
-  def append_to_json(pair, json_filename):
-    """TODO: Partial writes so this won't disappear on Ctrl-C"""
-    if os.path.isfile(json_filename):
-      with open(json_filename, 'r') as f:
-        current_json = json.load(f)
-      current_json["pairs"].append(pair)
-      with open(json_filename, 'w') as f:
-        json.dump(current_json, f)
-    else:
-      new_json = {"pairs": [pair]}
-      with open(json_filename, 'w') as f:
-        json.dump(new_json, f)
-
-
-
   # Actually do stuff
 
   for (curdir, subdirs, filenames) in os.walk(image_root_dir_name,
@@ -123,9 +103,7 @@ def main():
         if dryrun:
           vprint(2, v, "Would deal with {} (dryrun)".format(cur_path))
         else:
-          pair = deal_with(cur_path, thumb_root_dir_name, verbosity=v, size_tuple=(300, 300), force=force)
-          if pair != None and json_filename != None:
-            append_to_json(pair, json_filename)
+          deal_with(cur_path, thumb_root_dir_name, verbosity=v, size_tuple=(300, 300), force=force)
 
 
 def can_be_thumbnailed(path):
