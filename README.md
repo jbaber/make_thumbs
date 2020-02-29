@@ -1,4 +1,5 @@
-Copy a directory tree full of images to a directory tree full of thumbnails.
+Copy a directory tree full of images to a collection of thumbnails indexed by
+sha256.
 
 After
 
