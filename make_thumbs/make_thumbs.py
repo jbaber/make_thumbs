@@ -17,25 +17,25 @@ Usage: {0} [options] [-x <path> ...] [-v ...]
        {0} --version
 
 Options:
-  -r, --root-dir=<DIR>                      Directory full of images and videos
-                                            to make thumbnails of.  [DEFAULT: {1}]
-  -t, --thumb-root-dir=<DIR>                Directory to populate with directories
-                                            full of thumbnails (named for the hash
-                                            of each image).  [DEFAULT: {2}]
-  -d, --dry-run                             Don't actually write any files
-  -f, --force                               Overwrite existing thumbnails.
-  -x, --exclude=<filename>                  Directory/filename to exclude (you
-                                            can list multiple by passing
-                                            "-x one -x two" etc.
-  -X, --excludes-file=<filename>            File with one filename/dirname
-                                            per line to be excluded
-  -V, --version                             Show version
-  -v, --verbosity                           Number of v's is level of verbosity
-                                            (No -v results in silence, -vvvv is
-                                            super verbose)
-  -c, --correspondence-file=<filename.json> If given, json matching original filenames to
-                                            tuples of paths to thumbnails will be put in
-                                            <filename.json>
+  -r, --root-dir=<DIR>            Directory full of images and videos
+                                  to make thumbnails of.  [DEFAULT: {1}]
+  -t, --thumb-root-dir=<DIR>      Directory to populate with directories
+                                  full of thumbnails (named for the hash
+                                  of each image).  [DEFAULT: {2}]
+  -d, --dry-run                   Don't actually write any files
+  -f, --force                     Overwrite existing thumbnails.
+  -x, --exclude=<filename>        Directory/filename to exclude (you
+                                  can list multiple by passing
+                                  "-x one -x two" etc.
+  -X, --excludes-file=<filename>  File with one filename/dirname
+                                  per line to be excluded
+  -V, --version                   Show version
+  -v, --verbosity                 Number of v's is level of verbosity
+                                  (No -v results in silence, -vvvv is
+                                  super verbose)
+  -c, --corr-file=<filename.json> If given, json matching original filenames to
+                                  tuples of paths to thumbnails will be put in
+                                  <filename.json>
 """.format(sys.argv[0],
         os.path.join(os.path.abspath(os.path.curdir), "images"),
         os.path.join(os.path.abspath(os.path.curdir), "thumbs"))
@@ -78,7 +78,7 @@ def mkdir_exist(dirname, dryrun=False, *, verbosity=1):
 def main():
   args = docopt(__doc__, version='2.0.0')
 
-  json_filename = args["--correspondence-file"]
+  json_filename = args["--corr-file"]
 
   if json_filename != None:
     correspondence = {}
@@ -157,27 +157,6 @@ def is_an_image(path):
 
 def is_a_video(path):
   return (magic.from_file(path, mime=True).split("/")[0] == "video")
-
-
-def thumb_names_from_filename(filename):
-  return {
-    "image": "t-" + os.path.basename(filename),
-    "image600": "t600-" + os.path.basename(filename),
-    "video": "tv-" + os.path.basename(filename) + ".jpg",
-  }
-
-
-def thumb_name_from_filename(filename, midsize=False):
-  if is_an_image(filename):
-    if midsize:
-      return thumb_names_from_filename(filename)["image600"]
-    return thumb_names_from_filename(filename)["image"]
-  if is_a_video(filename):
-
-    # No such thing for videos right now
-    if midsize:
-      return None
-    return thumb_names_from_filename(filename)["video"]
 
 
 def sha256sum(filename):
