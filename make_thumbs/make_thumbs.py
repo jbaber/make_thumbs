@@ -9,6 +9,7 @@ from PIL import Image
 import magic
 import subprocess
 import hashlib
+import json
 
 
 __doc__ = """
@@ -16,22 +17,25 @@ Usage: {0} [options] [-x <path> ...] [-v ...]
        {0} --version
 
 Options:
-  -r, --root-dir=<DIR>            Directory full of images and videos
-                                  to make thumbnails of.  [DEFAULT: {1}]
-  -t, --thumb-root-dir=<DIR>      Directory to populate with directories
-                                  full of thumbnails (named for the hash
-                                  of each image).  [DEFAULT: {2}]
-  -d, --dry-run                   Don't actually write any files
-  -f, --force                     Overwrite existing thumbnails.
-  -x, --exclude=<filename>        Directory/filename to exclude (you
-                                  can list multiple by passing
-                                  "-x one -x two" etc.
-  -X, --excludes-file=<filename>  File with one filename/dirname
-                                  per line to be excluded
-  -V, --version                   Show version
-  -v, --verbosity                 Number of v's is level of verbosity
-                                  (No -v results in silence, -vvvv is
-                                  super verbose)
+  -r, --root-dir=<DIR>                      Directory full of images and videos
+                                            to make thumbnails of.  [DEFAULT: {1}]
+  -t, --thumb-root-dir=<DIR>                Directory to populate with directories
+                                            full of thumbnails (named for the hash
+                                            of each image).  [DEFAULT: {2}]
+  -d, --dry-run                             Don't actually write any files
+  -f, --force                               Overwrite existing thumbnails.
+  -x, --exclude=<filename>                  Directory/filename to exclude (you
+                                            can list multiple by passing
+                                            "-x one -x two" etc.
+  -X, --excludes-file=<filename>            File with one filename/dirname
+                                            per line to be excluded
+  -V, --version                             Show version
+  -v, --verbosity                           Number of v's is level of verbosity
+                                            (No -v results in silence, -vvvv is
+                                            super verbose)
+  -c, --correspondence-file=<filename.json> If given, json matching original filenames to
+                                            tuples of paths to thumbnails will be put in
+                                            <filename.json>
 """.format(sys.argv[0],
         os.path.join(os.path.abspath(os.path.curdir), "images"),
         os.path.join(os.path.abspath(os.path.curdir), "thumbs"))
@@ -73,6 +77,13 @@ def mkdir_exist(dirname, dryrun=False, *, verbosity=1):
 
 def main():
   args = docopt(__doc__, version='2.0.0')
+
+  json_filename = args["--correspondence-file"]
+
+  if json_filename != None:
+    correspondence = {}
+  else:
+    correspondence = None
 
   dryrun = args["--dry-run"]
 
@@ -129,7 +140,11 @@ def main():
         else:
           deal_with(cur_path, thumb_root_dir_name, verbosity=v,
             size_tuples=[(100, 100), (300, 300), (600, 600)],
-            force=force, dryrun=dryrun)
+            force=force, dryrun=dryrun, correspondence=correspondence)
+
+  if json_filename != None:
+    with open(json_filename, "w") as f:
+      json.dump(correspondence, f, sort_keys=True, indent=2)
 
 
 def can_be_thumbnailed(path):
@@ -175,7 +190,8 @@ def sha256sum(filename):
   return h.hexdigest()
 
 
-def deal_with(filename, thumb_root_dir_name, verbosity=0, size_tuples=None, force=False, dryrun=False):
+def deal_with(filename, thumb_root_dir_name, verbosity=0, size_tuples=None,
+    force=False, dryrun=False, correspondence=None):
   """
   @returns (path_of_filename, paths_of_thumbnails) on success
   """
@@ -184,6 +200,8 @@ def deal_with(filename, thumb_root_dir_name, verbosity=0, size_tuples=None, forc
 
   # TODO Handle collisions
   hashhex = sha256sum(filename)
+  if correspondence != None:
+    correspondence[filename] = []
 
   thumb_dir = os.path.join(thumb_root_dir_name, hashhex)
   vprint(1, verbosity, f"Putting thumbs in {thumb_dir}")
@@ -201,6 +219,8 @@ def deal_with(filename, thumb_root_dir_name, verbosity=0, size_tuples=None, forc
 
     try:
       create_thumbnail(filename, thumb_path, size_tuple, verbosity)
+      if correspondence != None:
+        correspondence[filename].append(thumb_path)
     except OSError as e:
       vprint(1, verbosity, f"Error thumbnailing {filename}: {str(e)}")
       return
