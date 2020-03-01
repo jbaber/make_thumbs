@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(
   name = "make_thumbs",
-  version = "1.0.0",
+  version = "2.0.0",
   author = "John Baber-Lucero",
   author_email = "pypi@frundle.com",
   description = ("Copy a directory tree full of images to a directory tree full of thumbnails."),

@@ -8,6 +8,7 @@ import os
 from PIL import Image
 import magic
 import subprocess
+import hashlib
 
 
 __doc__ = """
@@ -17,8 +18,9 @@ Usage: {0} [options] [-x <path> ...] [-v ...]
 Options:
   -r, --root-dir=<DIR>            Directory full of images and videos
                                   to make thumbnails of.  [DEFAULT: {1}]
-  -t, --thumb-root-dir=<DIR>      Directory to populate with a tree full
-                                  of thumbnails.  [DEFAULT: {2}]
+  -t, --thumb-root-dir=<DIR>      Directory to populate with directories
+                                  full of thumbnails (named for the hash
+                                  of each image).  [DEFAULT: {2}]
   -d, --dry-run                   Don't actually write any files
   -f, --force                     Overwrite existing thumbnails.
   -x, --exclude=<filename>        Directory/filename to exclude (you
@@ -43,8 +45,34 @@ def vprint(given_verbosity, verbosity, string):
     print(string)
 
 
+def mkdir_exist(dirname, dryrun=False, *, verbosity=1):
+  """
+  Create directory named `dirname`, *not* throwing
+  an exception if it already exists.
+  Do nothing but make logging noise if `dryrun` is
+  True
+  """
+  v = verbosity
+
+  if os.path.isdir(dirname):
+    vprint(1, v, "{} already exists.  Doing nothing.".format(dirname))
+    return
+
+  if os.path.exists(dirname):
+    errmsg = "ERROR: {} already exists and isn't a directory".format(dirname)
+    vprint(0, v, errmsg)
+    raise TypeError(errmsg)
+
+  if dryrun:
+    vprint(1, v, "Not creating {} (dryrun)".format(dirname))
+    return
+
+  vprint(1, v, "Creating {}".format(dirname))
+  os.makedirs(dirname)
+
+
 def main():
-  args = docopt(__doc__, version='1.0.0')
+  args = docopt(__doc__, version='2.0.0')
 
   dryrun = args["--dry-run"]
 
@@ -59,15 +87,11 @@ def main():
     exit(1)
 
   thumb_root_dir_name = args["--thumb-root-dir"]
-  if not os.path.isdir(thumb_root_dir_name):
-    if dryrun:
-      vprint(1, v, "Not creating {} (dryrun)".format(thumb_root_dir_name))
-    else:
-      vprint(1, v, "Creating {}".format(thumb_root_dir_name))
-      try:
-        os.makedirs(thumb_root_dir_name)
-      except FileExistsError:
-        pass
+  try:
+    mkdir_exist(thumb_root_dir_name)
+  except TypeError as e:
+    print(f"'{thumb_root_dir_name}' already exists and isn't a directory")
+    exit(1)
 
   excluded_dirnames = args["--exclude"]
   excluded_filenames = args["--exclude"]
@@ -103,7 +127,8 @@ def main():
         if dryrun:
           vprint(2, v, "Would deal with {} (dryrun)".format(cur_path))
         else:
-          deal_with(cur_path, thumb_root_dir_name, verbosity=v, size_tuple=(300, 300), force=force)
+          deal_with(cur_path, thumb_root_dir_name, verbosity=v, size_tuples=[(100, 100), (300, 300)],
+            force=force, dryrun=dryrun)
 
 
 def can_be_thumbnailed(path):
@@ -139,62 +164,51 @@ def thumb_name_from_filename(filename, midsize=False):
     return thumb_names_from_filename(filename)["video"]
 
 
-def existing_thumbs(filename, thumb_dir):
-  names = thumb_names_from_filename(filename)
-  to_return = []
-  for filetype in names:
-    possible_name = names[filetype]
-    possible_path = os.path.join(thumb_dir, possible_name)
-    if os.path.exists(possible_path):
-      to_return.append(possible_path)
-  return to_return
+def sha256sum(filename):
+  h = hashlib.sha256()
+  b = bytearray(128 * 1024)
+  mv = memoryview(b)
+  with open(filename, 'rb', buffering=0) as f:
+    for n in iter(lambda: f.readinto(mv), 0):
+      h.update(mv[:n])
+  return h.hexdigest()
 
 
-def deal_with(filename, thumb_root_dir_name, verbosity=0, size_tuple=None, force=False):
+def deal_with(filename, thumb_root_dir_name, verbosity=0, size_tuples=None, force=False, dryrun=False):
   """
-  @returns (path_of_filename, path_of_thumbnail) on success
+  @returns (path_of_filename, paths_of_thumbnails) on success
   """
-  if size_tuple == None:
-    size_tuple = (120, 120)
+  if size_tuples == None:
+    size_tuples = [(120, 120)]
 
-  thumb_dir = os.path.normpath(os.path.join(thumb_root_dir_name, os.path.dirname(filename)))
+  # TODO Handle collisions
+  hashhex = sha256sum(filename)
 
-  existing = existing_thumbs(filename, thumb_dir)
-  if (existing != []) and not force:
-    for name in existing:
-      vprint(1, verbosity, f"{name} already exists.  If you want it clobbered, pass -f flag.")
-    return
+  thumb_dir = os.path.join(thumb_root_dir_name, hashhex)
+  vprint(1, verbosity, f"Putting thumbs in {thumb_dir}")
 
-  thumb_filename = os.path.join(thumb_dir, thumb_name_from_filename(filename))
-  possible_midsize_basename = thumb_name_from_filename(filename, midsize=True)
-  if possible_midsize_basename != None:
-    mid_thumb_filename = os.path.join(thumb_dir, possible_midsize_basename)
-  else:
-    mid_thumb_filename = None
+  mkdir_exist(thumb_dir, dryrun=dryrun, verbosity=verbosity)
 
-  try:
-    os.makedirs(thumb_dir)
-  except FileExistsError as e:
-    pass
+  for size_tuple in size_tuples:
+    s_dimension = f"{size_tuple[0]}x{size_tuple[1]}"
+    thumb_path = os.path.join(thumb_dir, f"{s_dimension}.jpg")
+    vprint(1, verbosity, f"Creating {s_dimension} thumb at {thumb_path}")
+    if os.path.exists(thumb_path) and not force:
+      vprint(1, verbosity, f"{thumb_path} already exists.  If you want it "
+          "clobbered, pass -f flag.")
+      continue
 
-  try:
-    vprint(2, verbosity,
-        f"Making thumb for\n  {filename}\nat\n  {thumb_filename}")
-    create_thumbnail(filename, thumb_filename, size_tuple, verbosity)
-    if mid_thumb_filename:
-      vprint(2, verbosity,
-          f"Making midsize thumb for\n  {filename}\nat\n  {mid_thumb_filename}")
-      create_thumbnail(filename, mid_thumb_filename, (600, 600), verbosity)
-    return
-  except OSError as e:
-    vprint(1, verbosity, f"Error thumbnailing {filename}: {str(e)}")
-    return
-  except ValueError as e:
-    vprint(1, verbosity, f"I can tell {filename} is an image file, but the image library I use cannot handle it.  (Got error {str(e)})")
-    return
-  except IOError as e:
-    vprint(1, verbosity, f"I can tell {filename} is an image file, but the image library I use cannot handle it.  (Got error {str(e)})")
-    return
+    try:
+      create_thumbnail(filename, thumb_path, size_tuple, verbosity)
+    except OSError as e:
+      vprint(1, verbosity, f"Error thumbnailing {filename}: {str(e)}")
+      return
+    except ValueError as e:
+      vprint(1, verbosity, f"I can tell {filename} is an image file, but the image library I use cannot handle it.  (Got error {str(e)})")
+      return
+    except IOError as e:
+      vprint(1, verbosity, f"I can tell {filename} is an image file, but the image library I use cannot handle it.  (Got error {str(e)})")
+      return
 
 
 def create_thumbnail_from_image(filename, thumb_filename, size_tuple):
