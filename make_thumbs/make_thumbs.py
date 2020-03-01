@@ -13,7 +13,7 @@ import json
 
 
 __doc__ = """
-Usage: {0} [options] [-x <path> ...] [-v ...]
+Usage: {0} [options] [-x <path> ...] [-b <600x400> ...] [-v ...]
        {0} --version
 
 Options:
@@ -36,6 +36,10 @@ Options:
   -c, --corr-file=<filename.json> If given, json matching original filenames to
                                   tuples of paths to thumbnails will be put in
                                   <filename.json>
+  -b, --bounding-box=<600x400>    Bounding box for thumbnails.  Any two numbers
+                                  separated by an 'x'.  Multiple -b's yields
+                                  multiple sizes of thumbnails.  If no -b
+                                  arguments are given, defaults to 600x400.
 """.format(sys.argv[0],
         os.path.join(os.path.abspath(os.path.curdir), "images"),
         os.path.join(os.path.abspath(os.path.curdir), "thumbs"))
@@ -118,6 +122,24 @@ def main():
           excluded_filenames.append(line)
       excluded_filenames.append(excludes_filename)
 
+  bounds = args["--bounding-box"]
+
+  size_tuples = []
+  if bounds == []:
+    size_tuples.append((600, 400))
+  else:
+    for bound in bounds:
+      try:
+        (x, y) = bound.split("x")
+        size_tuples.append((int(x), int(y)))
+      except ValueError as e:
+        print(f"'-b {bound}' isn't of the format '-b 123x456'")
+        continue
+
+  if size_tuples == []:
+    print(f"No well-formatted bounding boxes given.  Give something like ")
+    print(f"'-b 132x456' or give none and take a default")
+    exit(1)
 
   # Actually do stuff
 
@@ -139,7 +161,7 @@ def main():
           vprint(2, v, "Would deal with {} (dryrun)".format(cur_path))
         else:
           deal_with(cur_path, thumb_root_dir_name, verbosity=v,
-            size_tuples=[(100, 100), (300, 300), (600, 600)],
+            size_tuples=size_tuples,
             force=force, dryrun=dryrun, correspondence=correspondence)
 
   if json_filename != None:
