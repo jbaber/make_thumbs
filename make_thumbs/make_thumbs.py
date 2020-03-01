@@ -55,7 +55,7 @@ def mkdir_exist(dirname, dryrun=False, *, verbosity=1):
   v = verbosity
 
   if os.path.isdir(dirname):
-    vprint(1, v, "{} already exists.  Doing nothing.".format(dirname))
+    vprint(1, v, "Not creating {} (already exists)".format(dirname))
     return
 
   if os.path.exists(dirname):
@@ -127,7 +127,8 @@ def main():
         if dryrun:
           vprint(2, v, "Would deal with {} (dryrun)".format(cur_path))
         else:
-          deal_with(cur_path, thumb_root_dir_name, verbosity=v, size_tuples=[(100, 100), (300, 300)],
+          deal_with(cur_path, thumb_root_dir_name, verbosity=v,
+            size_tuples=[(100, 100), (300, 300), (600, 600)],
             force=force, dryrun=dryrun)
 
 
@@ -221,7 +222,11 @@ def create_thumbnail_from_video(filename, thumb_filename, size_tuple, verbosity=
   big_thumb_filename = thumb_filename + "meta.png"
   cmdline = ["ffmpeg", "-i", filename, "-ss", "00:00:01.000", "-vframes", "1", big_thumb_filename]
   vprint(1, verbosity, "{0}".format(" ".join(cmdline)))
-  subprocess.run(cmdline, check=True)
+  if verbosity > 1:
+    subprocess.run(cmdline, check=True)
+  else:
+    subprocess.run(cmdline, check=True, stderr=subprocess.PIPE)
+
   create_thumbnail_from_image(big_thumb_filename, thumb_filename,
       size_tuple)
   vprint(1, verbosity, f"Deleting {big_thumb_filename}")
